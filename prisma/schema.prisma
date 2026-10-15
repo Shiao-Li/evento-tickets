@@ -1,0 +1,100 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum OrderStatus {
+  pending
+  receipt_uploaded
+  approved
+  rejected
+  expired
+}
+
+enum StaffRole {
+  ADMIN
+  STAFF
+}
+
+/// Configuración única (fila id = 1), editable desde /admin/settings.
+model EventConfig {
+  id                Int      @id @default(1)
+  eventName         String
+  eventDate         DateTime
+  venue             String
+  description       String   @default("")
+  priceCents        Int
+  totalStock        Int      @default(200)
+  reservationHours  Int      @default(24)
+  maxPerOrder       Int      @default(10)
+  salesOpen         Boolean  @default(true)
+  bankName          String   @default("Banco Pichincha")
+  accountType       String   @default("Ahorros")
+  accountNumber     String   @default("")
+  accountHolder     String   @default("")
+  holderId          String   @default("")
+  notificationEmail String   @default("")
+  updatedAt         DateTime @updatedAt
+
+  @@map("event_config")
+}
+
+model Order {
+  id               String      @id @default(uuid())
+  reference        String      @unique
+  accessToken      String      @unique
+  buyerName        String
+  buyerEmail       String
+  buyerDocument    String
+  buyerPhone       String
+  quantity         Int
+  totalCents       Int
+  status           OrderStatus @default(pending)
+  receiptUrl       String?
+  receiptUploadedAt DateTime?
+  expiresAt        DateTime
+  approvedAt       DateTime?
+  rejectedReason   String?
+  reviewedById     String?
+  emailSentAt      DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  tickets          Ticket[]
+
+  @@index([status, expiresAt])
+  @@index([buyerEmail])
+  @@map("orders")
+}
+
+model Ticket {
+  id         String     @id @default(uuid())
+  serial     Int        @unique @default(autoincrement())
+  token      String     @unique
+  orderId    String
+  order      Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  usedAt     DateTime?
+  usedById   String?
+  usedBy     StaffUser? @relation(fields: [usedById], references: [id])
+  createdAt  DateTime   @default(now())
+
+  @@index([orderId])
+  @@map("tickets")
+}
+
+model StaffUser {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         StaffRole @default(STAFF)
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  scanned      Ticket[]
+
+  @@map("staff_users")
+}

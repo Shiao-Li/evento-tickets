@@ -6,10 +6,11 @@ import { fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, { params }: { params: { reference: string } }) {
+export async function GET(req: Request, { params }: { params: Promise<{ reference: string }> }) {
+  const { reference } = await params;
   const k = new URL(req.url).searchParams.get("k") ?? "";
   const [order, cfg] = await Promise.all([
-    db.order.findUnique({ where: { reference: params.reference }, include: { tickets: { orderBy: { serial: "asc" } } } }),
+    db.order.findUnique({ where: { reference: reference }, include: { tickets: { orderBy: { serial: "asc" } }, ticketType: true } }),
     getConfig(),
   ]);
   if (!order || !cfg || !safeEqual(order.accessToken, k) || order.status !== "approved" || !order.tickets.length) {
@@ -21,6 +22,7 @@ export async function GET(req: Request, { params }: { params: { reference: strin
     venue: cfg.venue,
     reference: order.reference,
     buyerName: order.buyerName,
+    typeName: order.ticketType?.name ?? "General",
     tickets: order.tickets,
   });
   return new Response(new Uint8Array(pdf), {

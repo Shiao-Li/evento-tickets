@@ -5,6 +5,14 @@ import path from "path";
 export const RECEIPT_TYPES = ["image/jpeg", "image/png", "image/webp"];
 export const RECEIPT_MAX_BYTES = 4 * 1024 * 1024; // Vercel limita el body de funciones a ~4.5 MB
 
+/** Detecta el tipo real por los primeros bytes (no confiar solo en el MIME que declara el navegador). */
+export function sniffImage(b: Uint8Array): string | null {
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
+  return null;
+}
+
 export async function storeReceipt(file: File, reference: string): Promise<string> {
   const ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
   const name = `receipts/${reference}.${ext}`;

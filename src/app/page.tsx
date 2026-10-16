@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getAvailability, expireStaleOrders, getConfig } from "@/lib/config";
+import { expireStaleOrders, getConfig, listTypeStats, totalsOf } from "@/lib/config";
 import { fmtDate, money } from "@/lib/format";
 import BuyForm from "@/components/BuyForm";
 
@@ -16,8 +16,10 @@ export default async function Home() {
     );
   }
   await expireStaleOrders();
-  const av = await getAvailability(cfg.totalStock);
-  const canBuy = cfg.salesOpen && av.remaining > 0;
+  const types = await listTypeStats({ onlyActive: true });
+  const tot = totalsOf(types);
+  const canBuy = cfg.salesOpen && tot.remaining > 0;
+  const minPrice = types.length ? Math.min(...types.map((t) => t.priceCents)) : 0;
 
   return (
     <main className="container">
@@ -29,9 +31,9 @@ export default async function Home() {
             <p style={{ fontSize: "1.1rem", marginBottom: 0 }}>{cfg.venue}</p>
             <div className="perf" />
             <div className="row" style={{ justifyContent: "space-between" }}>
-              <span className="price">{money(cfg.priceCents)}</span>
+              <span className="price">{types.length > 1 ? `Desde ${money(minPrice)}` : money(minPrice)}</span>
               <span style={{ fontWeight: 700 }}>
-                {av.remaining === 0 ? "Agotado" : `Quedan ${av.remaining} de ${av.total}`}
+                {tot.remaining === 0 ? "Agotado" : `Quedan ${tot.remaining} entradas`}
               </span>
             </div>
           </div>
@@ -42,11 +44,16 @@ export default async function Home() {
 
         <section className="card" aria-labelledby="buy">
           <h2 id="buy">Comprar entradas</h2>
-          {canBuy ? (
-            <BuyForm priceCents={cfg.priceCents} maxQty={Math.min(cfg.maxPerOrder, av.remaining)} />
+          {types.length === 0 ? (
+            <p className="alert warn">Las entradas aún no están disponibles.</p>
+          ) : canBuy ? (
+            <BuyForm
+              maxPerOrder={cfg.maxPerOrder}
+              types={types.map((t) => ({ id: t.id, name: t.name, description: t.description, priceCents: t.priceCents, remaining: t.remaining }))}
+            />
           ) : (
             <p className="alert warn">
-              {av.remaining === 0 ? "Las entradas están agotadas." : "Las ventas están cerradas por ahora."}
+              {tot.remaining === 0 ? "Las entradas están agotadas." : "Las ventas están cerradas por ahora."}
             </p>
           )}
           <p className="small muted" style={{ marginBottom: 0 }}>

@@ -9,6 +9,8 @@ type Result = {
   serial?: string;
   buyerName?: string;
   reference?: string;
+  document?: string;
+  ticketType?: string | null;
   usedAt?: string;
   usedBy?: string | null;
 };
@@ -20,11 +22,19 @@ const TITLE: Record<Result["status"], string> = {
   error: "ERROR",
 };
 
+// Cuánto permanece el resultado en pantalla. "0" = hasta que el guardia toque la pantalla.
+const HOLD_OPTIONS = [
+  { value: "0", label: "Hasta tocar" },
+  { value: "10", label: "10 segundos" },
+  { value: "20", label: "20 segundos" },
+];
+
 export default function Scanner() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [camError, setCamError] = useState("");
   const [sound, setSound] = useState(true);
+  const [hold, setHold] = useState("0");
   const [okCount, setOkCount] = useState(0);
 
   const scanner = useRef<Html5Qrcode | null>(null);
@@ -33,12 +43,17 @@ export default function Scanner() {
   const last = useRef({ token: "", at: 0 });
   const timer = useRef<number | null>(null);
   const soundRef = useRef(true);
+  const holdRef = useRef(0);
 
   useEffect(() => {
-    const saved = localStorage.getItem("scan-sound");
-    if (saved === "off") {
+    if (localStorage.getItem("scan-sound") === "off") {
       setSound(false);
       soundRef.current = false;
+    }
+    const h = localStorage.getItem("scan-hold");
+    if (h && HOLD_OPTIONS.some((o) => o.value === h)) {
+      setHold(h);
+      holdRef.current = Number(h) * 1000;
     }
     return () => {
       if (timer.current) window.clearTimeout(timer.current);
@@ -86,7 +101,7 @@ export default function Scanner() {
       setResult(r);
       feedback(r.status);
       if (r.status === "valid") setOkCount((n) => n + 1);
-      timer.current = window.setTimeout(dismiss, r.status === "valid" ? 2000 : 3500);
+      if (holdRef.current > 0) timer.current = window.setTimeout(dismiss, holdRef.current);
     },
     [dismiss]
   );
@@ -102,7 +117,7 @@ export default function Scanner() {
         const res = await fetch("/api/tickets/validate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: text }),
+          body: JSON.stringify({ token: text.slice(0, 300) }),
         });
         show((await res.json()) as Result);
       } catch {
@@ -145,24 +160,57 @@ export default function Scanner() {
     localStorage.setItem("scan-sound", next ? "on" : "off");
   }
 
+  function changeHold(v: string) {
+    setHold(v);
+    holdRef.current = Number(v) * 1000;
+    localStorage.setItem("scan-hold", v);
+  }
+
   return (
     <div className="scan-wrap stack">
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <b>Entradas validadas en este equipo: {okCount}</b>
+        <b>Validadas en este equipo: {okCount}</b>
         <button className="btn secondary sm" onClick={toggleSound} aria-pressed={sound}>
           Sonido: {sound ? "sí" : "no"}
         </button>
       </div>
 
+      <div className="field" style={{ marginBottom: 0 }}>
+        <label htmlFor="hold">Mostrar resultado</label>
+        <select id="hold" value={hold} onChange={(e) => changeHold(e.target.value)}>
+          {HOLD_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+
       <div id="qr-reader" />
-      {!running && (
-        <button className="btn block" onClick={start}>Iniciar cámara</button>
-      )}
+      {!running && <button className="btn block" onClick={start}>Iniciar cámara</button>}
       {camError && <p className="alert bad" role="alert">{camError}</p>}
 
       {result && (
         <div className={`overlay ${result.status}`} onClick={dismiss} role="alert">
           <div className="big">{TITLE[result.status]}</div>
+
+          {result.ticketType && (
+            <>
+              <p className="label">Tipo de entrada</p>
+              <p className="doc" style={{ marginBottom: ".75rem" }}>{result.ticketType.toUpperCase()}</p>
+            </>
+          )}
+          {result.buyerName && (
+            <>
+              <p className="label">Comprador</p>
+              <p className="who">{result.buyerName}</p>
+            </>
+          )}
+          {result.document && (
+            <>
+              <p className="label">Cédula / documento (compáralo con el físico)</p>
+              <p className="doc">{result.document}</p>
+            </>
+          )}
+          {result.serial && <p className="who">Entrada #{result.serial} · {result.reference}</p>}
           {result.status === "used" && result.usedAt && (
             <p className="who">
               Usada a las{" "}
@@ -170,10 +218,9 @@ export default function Scanner() {
               {result.usedBy ? ` por ${result.usedBy}` : ""}
             </p>
           )}
-          {result.serial && <p className="who">Entrada #{result.serial}</p>}
-          {result.buyerName && <p>{result.buyerName} · {result.reference}</p>}
           {(result.status === "invalid" || result.status === "error") && <p className="who">{result.message}</p>}
-          <p style={{ opacity: 0.8, marginTop: "1.5rem" }}>Toca para continuar</p>
+
+          <span className="cta">Continuar escaneando</span>
         </div>
       )}
     </div>

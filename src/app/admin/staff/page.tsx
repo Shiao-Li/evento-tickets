@@ -1,21 +1,24 @@
 import { db } from "@/lib/db";
+import BackLink from "@/components/BackLink";
 import { requireAdmin } from "@/lib/session";
 import { createStaffAction, toggleStaffAction } from "../actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function StaffPage({
-  searchParams,
+  searchParams: searchParamsPromise,
 }: {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const searchParams = await searchParamsPromise;
   const me = await requireAdmin();
   const users = await db.staffUser.findMany({ orderBy: { createdAt: "asc" } });
-  const err = typeof searchParams.err === "string" ? searchParams.err : "";
+  const err = typeof searchParams.err === "string" ? searchParams.err.slice(0, 200) : "";
 
   return (
     <>
-      <h1 style={{ fontSize: "2rem", marginTop: "1rem" }}>Staff</h1>
+      <BackLink href="/admin">Volver a órdenes</BackLink>
+      <h1 style={{ fontSize: "2rem" }}>Staff</h1>
       {searchParams.saved && <p className="alert ok" role="status">Usuario creado.</p>}
       {err && <p className="alert bad" role="alert">{err}</p>}
 
@@ -47,7 +50,7 @@ export default async function StaffPage({
         <h2>Nuevo usuario</h2>
         <div className="field"><label htmlFor="name">Nombre</label><input id="name" name="name" required /></div>
         <div className="field"><label htmlFor="email">Email</label><input id="email" name="email" type="email" required /></div>
-        <div className="field"><label htmlFor="password">Contraseña (mín. 8)</label><input id="password" name="password" type="password" minLength={8} autoComplete="new-password" required /></div>
+        <div className="field"><label htmlFor="password">Contraseña (mín. 10, con letras y números)</label><input id="password" name="password" type="password" minLength={10} maxLength={100} autoComplete="new-password" required /></div>
         <div className="field">
           <label htmlFor="role">Rol</label>
           <select id="role" name="role" defaultValue="STAFF">

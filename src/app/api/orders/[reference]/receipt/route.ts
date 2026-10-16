@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { safeEqual } from "@/lib/tokens";
-import { RECEIPT_MAX_BYTES, RECEIPT_TYPES, storeReceipt } from "@/lib/blob";
+import { RECEIPT_MAX_BYTES, RECEIPT_TYPES, sniffImage, storeReceipt } from "@/lib/blob";
 import { notifyReceiptUploaded } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request, { params }: { params: { reference: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ reference: string }> }) {
+  const { reference } = await params;
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
   const k = String(form?.get("k") ?? "");
@@ -20,7 +21,12 @@ export async function POST(req: Request, { params }: { params: { reference: stri
     return NextResponse.json({ error: "La imagen supera 4 MB." }, { status: 413 });
   }
 
-  const order = await db.order.findUnique({ where: { reference: params.reference } });
+  const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+  if (sniffImage(head) !== file.type) {
+    return NextResponse.json({ error: "El archivo no es una imagen válida." }, { status: 400 });
+  }
+
+  const order = await db.order.findUnique({ where: { reference: reference } });
   if (!order || !safeEqual(order.accessToken, k)) {
     return NextResponse.json({ error: "Orden no encontrada." }, { status: 404 });
   }

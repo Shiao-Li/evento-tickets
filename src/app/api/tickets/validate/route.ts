@@ -29,7 +29,7 @@ export async function POST(req: Request) {
 
   const ticket = await db.ticket.findUnique({
     where: { id },
-    include: { order: { select: { buyerName: true, reference: true } }, usedBy: { select: { name: true } } },
+    include: { order: { select: { buyerName: true, reference: true, buyerDocument: true, ticketType: { select: { name: true } } } }, usedBy: { select: { name: true } } },
   });
   if (!ticket) return NextResponse.json({ status: "invalid", message: "Entrada no encontrada" });
 
@@ -37,6 +37,8 @@ export async function POST(req: Request) {
     serial: serialLabel(ticket.serial),
     buyerName: ticket.order.buyerName,
     reference: ticket.order.reference,
+    document: ticket.order.buyerDocument,
+    ticketType: ticket.order.ticketType?.name ?? null,
   };
   if (res.count === 1) return NextResponse.json({ status: "valid", message: "Entrada válida", ...info });
   return NextResponse.json({

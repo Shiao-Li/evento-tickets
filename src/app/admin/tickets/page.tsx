@@ -1,16 +1,18 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import BackLink from "@/components/BackLink";
 import { fmtDate, serialLabel } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminTickets({
-  searchParams,
+  searchParams: searchParamsPromise,
 }: {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const q = typeof searchParams.q === "string" ? searchParams.q.trim() : "";
+  const searchParams = await searchParamsPromise;
+  const q = typeof searchParams.q === "string" ? searchParams.q.replace(/[\u0000-\u001F]/g, "").trim().slice(0, 60) : "";
   const s = typeof searchParams.s === "string" ? searchParams.s : "all";
 
   const where: Prisma.TicketWhereInput = {};
@@ -31,7 +33,7 @@ export default async function AdminTickets({
       where,
       orderBy: { serial: "asc" },
       take: 500,
-      include: { order: { select: { reference: true, buyerName: true, buyerEmail: true } }, usedBy: { select: { name: true } } },
+      include: { order: { select: { reference: true, buyerName: true, buyerEmail: true, ticketType: { select: { name: true } } } }, usedBy: { select: { name: true } } },
     }),
     db.ticket.count(),
     db.ticket.count({ where: { usedAt: { not: null } } }),
@@ -45,7 +47,8 @@ export default async function AdminTickets({
 
   return (
     <>
-      <h1 style={{ fontSize: "2rem", marginTop: "1rem" }}>Tickets</h1>
+      <BackLink href="/admin">Volver a órdenes</BackLink>
+      <h1 style={{ fontSize: "2rem" }}>Tickets</h1>
       <p className="muted">{total} emitidos · {used} usados · {total - used} válidos</p>
 
       <form className="row" style={{ marginBottom: "1rem" }}>
@@ -59,12 +62,13 @@ export default async function AdminTickets({
 
       <div className="tablewrap">
         <table>
-          <thead><tr><th>N.º</th><th>Comprador</th><th>Orden</th><th>Estado</th><th>Hora de uso</th><th>Validó</th></tr></thead>
+          <thead><tr><th>N.º</th><th>Tipo</th><th>Comprador</th><th>Orden</th><th>Estado</th><th>Hora de uso</th><th>Validó</th></tr></thead>
           <tbody>
-            {tickets.length === 0 && <tr><td colSpan={6} className="muted">Sin resultados.</td></tr>}
+            {tickets.length === 0 && <tr><td colSpan={7} className="muted">Sin resultados.</td></tr>}
             {tickets.map((t) => (
               <tr key={t.id}>
                 <td><b>#{serialLabel(t.serial)}</b></td>
+                <td>{t.order.ticketType?.name ?? "—"}</td>
                 <td>{t.order.buyerName}<div className="small muted">{t.order.buyerEmail}</div></td>
                 <td>{t.order.reference}</td>
                 <td>{t.usedAt ? <span className="badge warn">Usado</span> : <span className="badge ok">Válido</span>}</td>

@@ -1,10 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { randomBytes, randomInt, randomUUID } from "crypto";
 import { db } from "./db";
-import { expireStaleOrders, getAvailability } from "./config";
+import { expireStaleOrders, getTypeAvailability } from "./config";
 import { signTicketToken } from "./tokens";
 import { sendRejectionEmail, sendTicketsEmail } from "./email";
-import type { OrderInput } from "./validation";
+import type { ManualSaleInput, OrderInput } from "./validation";
 
 export class OrderError extends Error {}
 
@@ -20,41 +20,50 @@ function newReference(): string {
 export async function createOrder(input: OrderInput) {
   await expireStaleOrders();
 
-  // Anti-acaparamiento de stock: máximo 3 órdenes pendientes vigentes por email.
+  // Anti-acaparamiento de stock: máximo 3 órdenes pendientes vigentes por email o por documento.
   const open = await db.order.count({
-    where: { buyerEmail: input.email, status: "pending", expiresAt: { gt: new Date() } },
+    where: {
+      status: "pending",
+      expiresAt: { gt: new Date() },
+      OR: [{ buyerEmail: input.email }, { buyerDocument: input.document }],
+    },
   });
   if (open >= 3) {
-    throw new OrderError("Ya tienes 3 órdenes pendientes de comprobante. Súbelo o espera a que expiren.");
+    throw new OrderError("Ya tienes 3 órdenes pendientes de comprobante. Súbelo, cancélalo o espera a que expiren.");
   }
 
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       return await db.$transaction(
         async (tx) => {
-          // Serializa compras concurrentes: bloquea la fila de config hasta el commit.
-          await tx.$queryRaw`SELECT id FROM event_config WHERE id = 1 FOR UPDATE`;
+          // Serializa compras concurrentes del MISMO tipo: bloquea su fila hasta el commit.
+          await tx.$queryRaw`SELECT id FROM ticket_types WHERE id = ${input.ticketTypeId} FOR UPDATE`;
+          const type = await tx.ticketType.findUnique({ where: { id: input.ticketTypeId } });
+          if (!type || !type.active) throw new OrderError("Ese tipo de entrada no está disponible.");
+
           const cfg = await tx.eventConfig.findUnique({ where: { id: 1 } });
           if (!cfg) throw new OrderError("El evento aún no está configurado.");
           if (!cfg.salesOpen) throw new OrderError("Las ventas están cerradas.");
           if (input.quantity > cfg.maxPerOrder) {
             throw new OrderError(`Máximo ${cfg.maxPerOrder} entradas por compra.`);
           }
-          const av = await getAvailability(cfg.totalStock, tx);
-          if (av.remaining === 0) throw new OrderError("Entradas agotadas.");
+
+          const av = await getTypeAvailability(type.id, type.stock, tx);
+          if (av.remaining === 0) throw new OrderError(`Las entradas ${type.name} están agotadas.`);
           if (input.quantity > av.remaining) {
-            throw new OrderError(`Solo quedan ${av.remaining} entradas disponibles.`);
+            throw new OrderError(`Solo quedan ${av.remaining} entradas ${type.name}.`);
           }
           return tx.order.create({
             data: {
               reference: newReference(),
               accessToken: randomBytes(24).toString("hex"),
+              ticketTypeId: type.id,
               buyerName: input.name,
               buyerEmail: input.email,
               buyerDocument: input.document,
               buyerPhone: input.phone,
               quantity: input.quantity,
-              totalCents: cfg.priceCents * input.quantity,
+              totalCents: type.priceCents * input.quantity,
               expiresAt: new Date(Date.now() + cfg.reservationHours * 3600 * 1000),
             },
           });
@@ -103,4 +112,63 @@ export async function rejectOrder(orderId: string, staffId: string, reason: stri
   });
   if (upd.count === 0) throw new OrderError("La orden ya no se puede rechazar.");
   await sendRejectionEmail(orderId);
+}
+
+/**
+ * Venta registrada por el admin (efectivo u otra venta hecha fuera del sitio).
+ * Usa el mismo bloqueo de stock que la compra online, crea la orden ya aprobada y genera los tickets.
+ */
+export async function createManualSale(
+  input: Omit<ManualSaleInput, "amount"> & { amountCents: number | null },
+  staffId: string
+) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const order = await db.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT id FROM ticket_types WHERE id = ${input.ticketTypeId} FOR UPDATE`;
+          const type = await tx.ticketType.findUnique({ where: { id: input.ticketTypeId } });
+          if (!type) throw new OrderError("Tipo de entrada no encontrado.");
+
+          const av = await getTypeAvailability(type.id, type.stock, tx);
+          if (av.remaining === 0) throw new OrderError(`No quedan entradas ${type.name}.`);
+          if (input.quantity > av.remaining) throw new OrderError(`Solo quedan ${av.remaining} entradas ${type.name}.`);
+
+          const o = await tx.order.create({
+            data: {
+              reference: newReference(),
+              accessToken: randomBytes(24).toString("hex"),
+              ticketTypeId: type.id,
+              buyerName: input.name,
+              buyerEmail: input.email,
+              buyerDocument: input.document,
+              buyerPhone: input.phone,
+              quantity: input.quantity,
+              totalCents: input.amountCents ?? type.priceCents * input.quantity,
+              status: "approved",
+              approvedAt: new Date(),
+              reviewedById: staffId,
+              expiresAt: new Date(),
+              source: "manual",
+              paymentMethod: input.paymentMethod,
+              notes: input.notes || null,
+            },
+          });
+          const rows = Array.from({ length: input.quantity }, () => {
+            const id = randomUUID();
+            return { id, orderId: o.id, token: signTicketToken(id) };
+          });
+          await tx.ticket.createMany({ data: rows });
+          return o;
+        },
+        { timeout: 10_000 }
+      );
+      if (order.buyerEmail) await sendTicketsEmail(order.id);
+      return order;
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") continue;
+      throw e;
+    }
+  }
+  throw new OrderError("No se pudo generar la referencia. Intenta de nuevo.");
 }

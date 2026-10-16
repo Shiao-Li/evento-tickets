@@ -18,6 +18,7 @@ export async function ticketsPdf(p: {
   venue: string;
   reference: string;
   buyerName: string;
+  typeName: string;
   tickets: { serial: number; token: string }[];
 }): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
@@ -41,9 +42,10 @@ export async function ticketsPdf(p: {
     const png = await pdf.embedPng(await qrPng(t.token));
     page.drawImage(png, { x: 40, y: 190, width: 280, height: 280 });
 
-    centered(page, `ENTRADA #${serialLabel(t.serial)}`, 150, 16, bold);
-    centered(page, p.buyerName, 128, 11, regular);
-    centered(page, `Ref: ${p.reference}`, 110, 10, regular, rgb(0.4, 0.43, 0.48));
+    centered(page, p.typeName.toUpperCase(), 152, 22, bold, rgb(0.06, 0.36, 0.36));
+    centered(page, `Entrada #${serialLabel(t.serial)}`, 133, 12, bold);
+    centered(page, p.buyerName, 114, 11, regular);
+    centered(page, `Ref: ${p.reference}`, 98, 10, regular, rgb(0.4, 0.43, 0.48));
     centered(page, "Presenta este QR en la puerta. Válido para un solo ingreso.", 40, 8, regular, rgb(0.4, 0.43, 0.48));
   }
   return pdf.save();

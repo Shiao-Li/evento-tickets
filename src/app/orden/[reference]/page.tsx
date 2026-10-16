@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { getConfig } from "@/lib/config";
@@ -6,21 +6,24 @@ import { safeEqual } from "@/lib/tokens";
 import { qrDataUrl } from "@/lib/qr";
 import { fmtDate, money, serialLabel, STATUS_LABEL, STATUS_TONE } from "@/lib/format";
 import ReceiptUpload from "@/components/ReceiptUpload";
+import BackLink from "@/components/BackLink";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Tu orden", robots: { index: false } };
 
 export default async function OrderPage({
-  params,
-  searchParams,
+  params: paramsPromise,
+  searchParams: searchParamsPromise,
 }: {
-  params: { reference: string };
-  searchParams: Record<string, string | string[] | undefined>;
+  params: Promise<{ reference: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const params = await paramsPromise;
+  const searchParams = await searchParamsPromise;
   const k = typeof searchParams.k === "string" ? searchParams.k : "";
   const order = await db.order.findUnique({
     where: { reference: params.reference },
-    include: { tickets: { orderBy: { serial: "asc" } } },
+    include: { tickets: { orderBy: { serial: "asc" } }, ticketType: true },
   });
   if (!order || !safeEqual(order.accessToken, k)) notFound();
   const cfg = await getConfig();
@@ -33,9 +36,17 @@ export default async function OrderPage({
   }
   const qrs = status === "approved" ? await Promise.all(order.tickets.map((t) => qrDataUrl(t.token))) : [];
   const q = `?k=${order.accessToken}`;
+  const orderId = order.id;
+
+  async function cancelOrder() {
+    "use server";
+    await db.order.updateMany({ where: { id: orderId, status: "pending" }, data: { status: "cancelled" } });
+    redirect("/");
+  }
 
   return (
     <main className="container">
+      <BackLink href="/">Volver al evento</BackLink>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div>
           <p className="small muted" style={{ margin: 0 }}>Tu referencia</p>
@@ -44,7 +55,7 @@ export default async function OrderPage({
         <span className={`badge ${STATUS_TONE[status]}`}>{STATUS_LABEL[status]}</span>
       </div>
       <p className="muted">
-        {cfg.eventName} · {order.quantity} entrada(s) · {money(order.totalCents)}
+        {cfg.eventName} · {order.quantity} × {order.ticketType?.name ?? "Entrada"} · {money(order.totalCents)}
       </p>
 
       {status === "pending" && (
@@ -73,6 +84,14 @@ export default async function OrderPage({
         </div>
       )}
 
+      {status === "pending" && (
+        <form action={cancelOrder} className="small muted" style={{ marginTop: "1.25rem" }}>
+          ¿Te equivocaste de datos o ya no quieres las entradas?{" "}
+          <button className="btn secondary sm" style={{ marginLeft: ".4rem" }}>Cancelar esta orden</button>
+          <span style={{ display: "block", marginTop: ".4rem" }}>Se liberan tus entradas y vuelves al evento para comprar de nuevo.</span>
+        </form>
+      )}
+
       {status === "receipt_uploaded" && (
         <section className="card stack">
           <h2>Estamos revisando tu pago</h2>
@@ -88,6 +107,12 @@ export default async function OrderPage({
       {status === "rejected" && (
         <p className="alert bad">
           No pudimos validar tu pago.{order.rejectedReason ? ` Motivo: ${order.rejectedReason}.` : ""} Si crees que es un error, responde al correo que te enviamos o escríbenos con tu comprobante.
+        </p>
+      )}
+
+      {status === "cancelled" && (
+        <p className="alert warn">
+          Cancelaste esta orden. <Link href="/">Volver al evento</Link> para hacer una nueva compra.
         </p>
       )}
 
@@ -108,7 +133,8 @@ export default async function OrderPage({
               <article className="ticket" key={t.id}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img className="qr" src={qrs[i]} alt={`Código QR de la entrada ${serialLabel(t.serial)}`} />
-                <h3 style={{ marginTop: ".75rem" }}>Entrada #{serialLabel(t.serial)}</h3>
+                <h3 style={{ marginTop: ".75rem", marginBottom: ".1rem" }}>{order.ticketType?.name ?? "Entrada"}</h3>
+                <p className="small muted">Entrada #{serialLabel(t.serial)}</p>
                 {t.usedAt ? (
                   <span className="badge warn">Ya utilizada · {fmtDate(t.usedAt, { dateStyle: "short", timeStyle: "short" })}</span>
                 ) : (

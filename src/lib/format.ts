@@ -30,6 +30,7 @@ export const STATUS_LABEL: Record<string, string> = {
   approved: "Aprobada",
   rejected: "Rechazada",
   expired: "Expirada",
+  cancelled: "Cancelada",
 };
 
 export const STATUS_TONE: Record<string, string> = {
@@ -38,10 +39,18 @@ export const STATUS_TONE: Record<string, string> = {
   approved: "ok",
   rejected: "bad",
   expired: "muted",
+  cancelled: "muted",
 };
 
 export function appUrl(): string {
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
   return "http://localhost:3000";
+}
+
+/** Link de WhatsApp (wa.me) a partir de un teléfono ecuatoriano o internacional ya normalizado. */
+export function waLink(phone: string, text: string): string {
+  let digits = phone.replace(/\D/g, "");
+  if (!phone.startsWith("+") && digits.startsWith("0")) digits = "593" + digits.slice(1);
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }

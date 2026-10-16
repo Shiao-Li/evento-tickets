@@ -14,6 +14,7 @@ enum OrderStatus {
   approved
   rejected
   expired
+  cancelled
 }
 
 enum StaffRole {
@@ -28,8 +29,9 @@ model EventConfig {
   eventDate         DateTime
   venue             String
   description       String   @default("")
-  priceCents        Int
-  totalStock        Int      @default(200)
+  /// Heredado: el precio y el stock ahora viven en TicketType.
+  priceCents        Int      @default(0)
+  totalStock        Int      @default(0)
   reservationHours  Int      @default(24)
   maxPerOrder       Int      @default(10)
   salesOpen         Boolean  @default(true)
@@ -62,10 +64,16 @@ model Order {
   rejectedReason   String?
   reviewedById     String?
   emailSentAt      DateTime?
+  source           String      @default("online")
+  paymentMethod    String?
+  notes            String?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
+  ticketTypeId     String?
+  ticketType       TicketType? @relation(fields: [ticketTypeId], references: [id])
   tickets          Ticket[]
 
+  @@index([ticketTypeId])
   @@index([status, expiresAt])
   @@index([buyerEmail])
   @@map("orders")
@@ -97,4 +105,19 @@ model StaffUser {
   scanned      Ticket[]
 
   @@map("staff_users")
+}
+
+/// Tipos de entrada (Oro, Plata, Bronce…): cada uno con su precio y su stock.
+model TicketType {
+  id          String   @id @default(uuid())
+  name        String
+  description String   @default("")
+  priceCents  Int
+  stock       Int
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  orders      Order[]
+
+  @@map("ticket_types")
 }

@@ -1,23 +1,23 @@
 import { getConfig } from "@/lib/config";
+import BackLink from "@/components/BackLink";
 import { toInputValue } from "@/lib/format";
 import { saveSettingsAction } from "../actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage({
-  searchParams,
+  searchParams: searchParamsPromise,
 }: {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const searchParams = await searchParamsPromise;
   const c = await getConfig();
-  const err = typeof searchParams.err === "string" ? searchParams.err : "";
+  const err = typeof searchParams.err === "string" ? searchParams.err.slice(0, 200) : "";
   const d = {
     eventName: c?.eventName ?? "",
     eventDate: toInputValue(c?.eventDate ?? new Date(Date.now() + 30 * 864e5)),
     venue: c?.venue ?? "",
     description: c?.description ?? "",
-    price: ((c?.priceCents ?? 1000) / 100).toFixed(2),
-    totalStock: c?.totalStock ?? 200,
     reservationHours: c?.reservationHours ?? 24,
     maxPerOrder: c?.maxPerOrder ?? 10,
     salesOpen: c?.salesOpen ?? true,
@@ -31,7 +31,8 @@ export default async function SettingsPage({
 
   return (
     <>
-      <h1 style={{ fontSize: "2rem", marginTop: "1rem" }}>Configuración</h1>
+      <BackLink href="/admin">Volver a órdenes</BackLink>
+      <h1 style={{ fontSize: "2rem" }}>Configuración</h1>
       {searchParams.saved && <p className="alert ok" role="status">Cambios guardados. Ya están visibles en el sitio.</p>}
       {err && <p className="alert bad" role="alert">{err}</p>}
 
@@ -45,11 +46,10 @@ export default async function SettingsPage({
           </div>
           <div className="field"><label htmlFor="description">Descripción</label><textarea id="description" name="description" defaultValue={d.description} /></div>
           <div className="grid2">
-            <div className="field"><label htmlFor="price">Precio por entrada (USD)</label><input id="price" name="price" type="number" step="0.01" min="0" defaultValue={d.price} required /></div>
-            <div className="field"><label htmlFor="totalStock">Stock total</label><input id="totalStock" name="totalStock" type="number" min="1" defaultValue={d.totalStock} required /></div>
             <div className="field"><label htmlFor="reservationHours">Horas para subir comprobante</label><input id="reservationHours" name="reservationHours" type="number" min="1" max="720" defaultValue={d.reservationHours} required /></div>
             <div className="field"><label htmlFor="maxPerOrder">Máximo de entradas por compra</label><input id="maxPerOrder" name="maxPerOrder" type="number" min="1" max="50" defaultValue={d.maxPerOrder} required /></div>
           </div>
+          <p className="small muted">Los precios y el stock se editan por tipo de entrada en <a href="/admin/types">Tipos de entrada</a>.</p>
           <label className="row"><input type="checkbox" name="salesOpen" defaultChecked={d.salesOpen} style={{ width: "auto" }} /> Ventas abiertas</label>
         </section>
 
